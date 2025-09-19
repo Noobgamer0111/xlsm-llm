@@ -2,8 +2,23 @@
 ' This module provides functions to translate multiple columns and rows of text using an LLM API.
 ' It is related to the LLM_REVIEW_TRANSLATE module as originally created by ychoi-kr (Yong Choi).
 ' Intended to run for LM Studio users with OpenAI-compatible API endpoints.
+
+' This module adds the ability to translate multiple rows in a single API call, which is more efficient.
+' It also includes a simple in-memory cache to avoid redundant translations during a session.
+
+' Hardware used for testing:
+' Laptop: Lenovo ThinkBook 16 G7 IML (21MS)
+' CPU: Intel Core Ultra 7 125H (14 cores, 28 threads)
+' RAM: 32GB DDR5 SODIMM
+' GPU: NVIDIA GeForce RTX 2060 Super OC (ASUS DUAL-RTX2060S-O8G-EVO, see: https://www.techpowerup.com/gpu-specs/asus-dual-rtx-2060-super-evo-oc.b7178)
+' OS: Windows 11 Pro
+' GPU Dock: EXP GDC TH3P4G3, Thunderbolt 3 to PCIe 3.0 x16
+' Docking Station: Dell WD22TB4 - 180W
+' LLM: Local deployment of nvidia_riva-translate-4b-instruct on LM Studio (https://huggingface.co/tensorblock/nvidia_Riva-Translate-4B-Instruct-GGUF)
+
 Option Explicit
-Private Const CHUNK_ROWS As Long = 200
+Private Const CHUNK_ROWS As Long = 200 ' Number of rows to process in one batch call. I would not exceed 200 for most LLMs.
+' You can adjust this value based on your LLM's capabilities and hardware performance.
 Private Const ROW_DELIM As String = "<<<___ROW_DELIM___>>>"
 
 Private gTranslateCache As Object ' Scripting.Dictionary for Session Caching
