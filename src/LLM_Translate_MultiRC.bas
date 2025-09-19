@@ -16,12 +16,12 @@
 ' Docking Station: Dell WD22TB4 - 180W
 ' LLM: Local deployment of nvidia_riva-translate-4b-instruct on LM Studio (https://huggingface.co/tensorblock/nvidia_Riva-Translate-4B-Instruct-GGUF)
 
-Option Explicit
-Private Const CHUNK_ROWS As Long = 200 ' Number of rows to process in one batch call. I would not exceed 200 for most LLMs.
 ' You can adjust this value based on your LLM's capabilities and hardware performance.
+' Number of rows to process in one batch call. I would not exceed 200 for most LLMs.
+Option Explicit
+Private Const CHUNK_ROWS As Long = 200
 Private Const ROW_DELIM As String = "<<<___ROW_DELIM___>>>"
-
-Private gTranslateCache As Object ' Scripting.Dictionary for Session Caching
+Private gTranslateCache As Object
 
 ' The user must specify the focus cell range or cell to translate.
 ' Usage - Select a single-column range (e.g. A2:A234).
