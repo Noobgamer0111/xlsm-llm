@@ -3,7 +3,7 @@
 ' It is related to the LLM_REVIEW_TRANSLATE module as originally created by ychoi-kr (Yong Choi).
 ' Intended to run for LM Studio users with OpenAI-compatible API endpoints.
 
-' This module adds the ability to translate multiple rows in a single API call, which is more efficient.
+' This module adds the ability to translate multiple rows of a single column in a single API call, which is more efficient.
 ' It also includes a simple in-memory cache to avoid redundant translations during a session.
 
 ' Hardware used for testing:
