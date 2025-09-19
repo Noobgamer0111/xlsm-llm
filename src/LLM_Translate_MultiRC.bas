@@ -31,7 +31,6 @@ Private gTranslateCache As Object ' Scripting.Dictionary for Session Caching
 '   model:="nvidia_riva-translate-4b-instruct", baseURL:="http://localhost:1234/v1/"
 'Function to translate multiple columns of text at batch rate.
 
-
 Public Sub TranslateSelectedColumnToColumn_200( _
     Optional ByVal destColumn As Variant = "H", _
     Optional ByVal targetLang As String = "en", _
@@ -136,7 +135,6 @@ Cleanup:
     Application.Calculation = xlCalculationAutomatic
 End Sub
 
-
 ' =========================
 ' Chunk translator + cache
 ' =========================
@@ -213,7 +211,6 @@ Private Function BuildCacheKey( _
     BuildCacheKey = text & "||" & targetLang & "||" & sourceLang & "||" & customPrompt & _
                     "||" & CStr(model) & "||" & CStr(baseUrl)
 End Function
-
 
 ' =========================
 ' Batch call (1 LLM request for many lines)
@@ -311,7 +308,6 @@ Private Function CleanLLMText(ByVal s As String) As String
     s = Trim$(s)
     CleanLLMText = s
 End Function
-
 
 ' =========================
 ' Small helpers
