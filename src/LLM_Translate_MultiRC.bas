@@ -68,7 +68,7 @@ Public Sub BatchTranslate_ToChosenColumn()
     End If
 
     Set sel = Selection
-    If sel.Areas.Count > 1 Or sel.Columns.Count <> 1 Then
+    If sel.Areas.Count > 1 Or sel.ws.Columns.Count <> 1 Then
         MsgBox "Select exactly one continuous column block (e.g., E2:E20).", vbExclamation
         Exit Sub
     End If
@@ -97,7 +97,7 @@ Public Sub BatchTranslate_ToChosenColumn()
         destColIndex = userInput.Cells(1, 1).Column
     End If
 
-    If destColIndex < 1 Or destColIndex > Columns.Count Then
+    If destColIndex < 1 Or destColIndex > ws.Columns.Count Then
         MsgBox "Invalid destination column.", vbCritical
         Exit Sub
     End If
@@ -457,7 +457,7 @@ Public Function LLM_TRANSLATE_RANGE_BATCH( _
         LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrRef)
         Exit Function
     End If
-    If rng.Columns.Count <> 1 Then
+    If rng.ws.Columns.Count <> 1 Then
         ' Worksheet UDF: return an error if not a single column
         LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrValue)
         Exit Function
@@ -552,7 +552,7 @@ Public Function LLM_TRANSLATE_RANGE_TO( _
     On Error GoTo FailHard
 
     ' Basic validation: single column range
-    If rng Is Nothing Or rng.Columns.Count <> 1 Then
+    If rng Is Nothing Or rng.ws.Columns.Count <> 1 Then
         LLM_TRANSLATE_RANGE_TO = CVErr(xlErrValue)
         Exit Function
     End If
@@ -560,7 +560,7 @@ Public Function LLM_TRANSLATE_RANGE_TO( _
     ' Validate destination column against where the formula is entered
     Dim destColIndex As Long
     destColIndex = ResolveColumnIndex(destColumn)
-    If destColIndex < 1 Or destColIndex > Columns.Count Then
+    If destColIndex < 1 Or destColIndex > ws.Columns.Count Then
         LLM_TRANSLATE_RANGE_TO = CVErr(xlErrValue)
         Exit Function
     End If
@@ -608,6 +608,7 @@ Public Sub RegisterUDFHelp()
             "Base URL (optional; e.g., http://localhost:1234/v1)", _
             "Show hidden reasoning (Boolean; usually False)", _
             "API key (optional)" _
+        )
     
  '--- LLM_TRANSLATE_RANGE_TO (new; includes Destination Column) ---
     Application.MacroOptions _
