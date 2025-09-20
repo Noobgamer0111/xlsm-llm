@@ -27,11 +27,27 @@
 '   model:="nvidia_riva-translate-4b-instruct", baseURL:="http://localhost:1234/v1/"
 'Function to translate multiple columns of text at batch rate.
 
-Option Explicit
-Private Const CHUNK_ROWS As Long = 200
-Private Const ROW_DELIM As String = "<<<___ROW_DELIM___>>>"
-Private gTranslateCache As Object
+Option Explicit   ' Enforce explicit declarations (Office VBA best practice)
 
+' =========================
+' Config
+' =========================
+Private Const CHUNK_ROWS As Long = 200
+Private Const ROW_DELIM As String = "<<<__ROW_DELIM__>>>"
+
+Private gTranslateCache As Object ' Scripting.Dictionary (session cache)
+
+' =========================
+' Public macro:
+'   Translate the selected single column INTO a fixed destination column (e.g., "H"),
+'   processing in 200-row chunks per LLM call.
+' =========================
+'
+' Usage:
+'   1) Select a single contiguous column range, e.g., E2:E200 or E2:E20000.
+'   2) Run: TranslateSelectedColumnToColumn_200 destColumn:="H", targetLang:="en", _
+'          model:="your-lmstudio-model", baseUrl:="http://localhost:1234/v1"
+'
 Public Sub TranslateSelectedColumnToColumn_200( _
     Optional ByVal destColumn As Variant = "H", _
     Optional ByVal targetLang As String = "en", _
@@ -48,18 +64,24 @@ Public Sub TranslateSelectedColumnToColumn_200( _
     Dim destColIndex As Long
     Dim rowsCount As Long, startRow As Long, countRows As Long
     Dim srcCol As Range, destColRange As Range
+    Dim hasData As Boolean
 
+    On Error GoTo ErrHandler
+
+    ' --- Validate selection (must be a single contiguous column) ---
     If TypeName(Selection) <> "Range" Then
-        MsgBox "Please select a single column range (e.g., E2:E200).", vbExclamation
+        MsgBox "Please select a single contiguous column range (e.g., E2:E200).", vbExclamation
         Exit Sub
     End If
-    Set sel = Selection
 
+    Set sel = Selection
     If sel.Areas.Count > 1 Or sel.Columns.Count <> 1 Then
         MsgBox "Select exactly one continuous column block (e.g., E2:E200).", vbExclamation
         Exit Sub
     End If
+    ' Selection.Areas ensures single-area selection behavior.  [2](https://learn.microsoft.com/en-us/office/vba/api/excel.range.areas)
 
+    ' --- Ensure we have either a target language or a custom prompt (matches the UDF logic) ---
     If Trim$(targetLang) = "" And Trim$(customPrompt) = "" Then
         targetLang = InputBox("Target language (e.g., en, ko, Japanese). Leave blank only if using a custom prompt.", _
                               "Translate Column → Specific Column", "en")
@@ -70,6 +92,7 @@ Public Sub TranslateSelectedColumnToColumn_200( _
         End If
     End If
 
+    ' --- Resolve destination column index from "H"/"AA"/8, etc. ---
     destColIndex = ResolveColumnIndex(destColumn)
     If destColIndex < 1 Or destColIndex > Columns.Count Then
         MsgBox "Invalid destination column: " & CStr(destColumn), vbCritical
@@ -79,28 +102,29 @@ Public Sub TranslateSelectedColumnToColumn_200( _
     Set ws = sel.Worksheet
     Set srcCol = sel
 
+    ' Build destination range: same row span, fixed column
     Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
                                 ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
 
+    ' --- Warn if overwriting existing content in destination ---
     On Error Resume Next
-    Dim hasData As Boolean
-    hasData = (Application.WorksheetFunction.CountA(destColRange) > 0)
-    On Error GoTo 0
+    hasData = (Application.WorksheetFunction.CountA(destColRange) > 0) ' WorksheetFunction.CountA  [5](https://learn.microsoft.com/en-us/office/vba/api/Excel.WorksheetFunction.CountA)
+    On Error GoTo ErrHandler
+
     If hasData Then
-        If MsgBox("Destination range " & destColRange.Address(0, 0) & " contains data. Overwrite?", _
+        If MsgBox("Destination " & destColRange.Address(0, 0) & " contains data. Overwrite?", _
                   vbQuestion + vbYesNo, "Confirm Overwrite") <> vbYes Then
             Exit Sub
         End If
     End If
 
-    If gTranslateCache Is Nothing Then
-        Set gTranslateCache = CreateObject("Scripting.Dictionary")
-        gTranslateCache.CompareMode = 1 ' TextCompare
-    End If
+    ' --- Init cache ---
+    EnsureCacheReady
 
+    ' --- Guard UI / calc state ---
     Application.ScreenUpdating = False
     Application.EnableEvents = False
-    Application.Calculation = xlCalculationManual
+    Application.Calculation = xlCalculationManual   ' Manual calc during long operations  [3](https://learn.microsoft.com/en-us/office/vba/api/excel.application.calculation)
 
     rowsCount = srcCol.Rows.Count
     startRow = 1
@@ -112,30 +136,39 @@ Public Sub TranslateSelectedColumnToColumn_200( _
         End If
 
         Dim chunkSrc As Range, chunkDst As Range
-        Set chunkSrc = srcCol.Cells(startRow, 1).Resize(countRows, 1)
+        Set chunkSrc = srcCol.Cells(startRow, 1).Resize(countRows, 1)      ' Range addressing via Cells/Resize  [1](https://learn.microsoft.com/en-us/office/vba/api/excel.range%28object%29)
         Set chunkDst = destColRange.Cells(startRow, 1).Resize(countRows, 1)
 
+        ' Translate this 200-row chunk (or smaller at end)
         TranslateChunk chunkSrc, chunkDst, targetLang, sourceLang, customPrompt, _
                        temperature, maxTokens, model, baseUrl, showThink, apiKey
 
+        ' Progress in the status bar; restore with False later  [4](https://learn.microsoft.com/en-us/office/vba/api/excel.application.statusbar)
         Application.StatusBar = "Translating → " & ColumnLetter(destColIndex) & _
                                 " : rows " & (sel.Row + startRow - 1) & "–" & _
                                 (sel.Row + startRow + countRows - 2) & " ..."
-        DoEvents
+        DoEvents  ' Yield to UI (use sparingly)  [9](https://learn.microsoft.com/vi-vn/office/vba/language/reference/user-interface-help/doevents-function)
+
         startRow = startRow + countRows
     Loop
 
-Cleanup:
-    Application.StatusBar = False
+SafeExit:
+    ' --- Restore app state, always ---
+    Application.StatusBar = False           ' Restore default status text  [4](https://learn.microsoft.com/en-us/office/vba/api/excel.application.statusbar)
     Application.ScreenUpdating = True
     Application.EnableEvents = True
-    Application.Calculation = xlCalculationAutomatic
+    Application.Calculation = xlCalculationAutomatic   ' restore to automatic  [3](https://learn.microsoft.com/en-us/office/vba/api/excel.application.calculation)
+    Exit Sub
+
+ErrHandler:
+    MsgBox "Translation stopped: " & Err.Description, vbExclamation
+    Resume SafeExit
 End Sub
+
 
 ' =========================
 ' Chunk translator + cache
 ' =========================
-
 Private Sub TranslateChunk( _
     ByVal src As Range, _
     ByVal dst As Range, _
@@ -150,16 +183,17 @@ Private Sub TranslateChunk( _
     ByVal apiKey As Variant _
 )
     Dim rows As Long: rows = src.Rows.Count
-    Dim r As Long
-    Dim inVals As Variant: inVals = src.Value2
+    Dim inVals As Variant: inVals = src.Value2     ' Efficient bulk read/write of Range values  [1](https://learn.microsoft.com/en-us/office/vba/api/excel.range%28object%29)
     Dim outVals() As Variant: ReDim outVals(1 To rows, 1 To 1)
 
+    Dim r As Long
     Dim sendIdx() As Long, sendText() As String
     Dim nToSend As Long: nToSend = 0
 
-    ' Pass 1: fill from cache/blank/error; collect remaining for batch call
+    ' Pass 1: blanks/errors → copy; cache hits → copy; others → collect for batch
     For r = 1 To rows
         Dim v As Variant: v = inVals(r, 1)
+
         If IsError(v) Then
             outVals(r, 1) = v
         ElseIf LenB(v) = 0 Then
@@ -179,7 +213,7 @@ Private Sub TranslateChunk( _
         End If
     Next r
 
-    ' Pass 2: batch-call the remaining lines
+    ' Pass 2: batch-translate collected rows
     If nToSend > 0 Then
         Dim batchRes As Variant
         batchRes = LLM_TRANSLATE_BATCH(sendText, targetLang, sourceLang, customPrompt, _
@@ -208,6 +242,20 @@ Private Function BuildCacheKey( _
     BuildCacheKey = text & "||" & targetLang & "||" & sourceLang & "||" & customPrompt & _
                     "||" & CStr(model) & "||" & CStr(baseUrl)
 End Function
+
+Private Sub EnsureCacheReady()
+    If gTranslateCache Is Nothing Then
+        On Error Resume Next
+        ' Try early binding first (requires Tools→References: Microsoft Scripting Runtime)
+        ' Otherwise, fall back to late binding.
+        Set gTranslateCache = CreateObject("Scripting.Dictionary")  ' Dictionary object  [7](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/dictionary-object)
+        On Error GoTo 0
+        If Not gTranslateCache Is Nothing Then
+            gTranslateCache.CompareMode = 1 ' vbTextCompare
+        End If
+    End If
+End Sub
+
 
 ' =========================
 ' Batch call (1 LLM request for many lines)
@@ -239,7 +287,7 @@ Public Function LLM_TRANSLATE_BATCH( _
         LLM_TRANSLATE_BATCH = emptyOut
         Exit Function
     End If
-
+    ' Build batch prompt with a hard delimiter contract
     Dim sep As String: sep = ROW_DELIM
     Dim hdr As String
     If customPrompt <> "" Then
@@ -280,36 +328,36 @@ Public Function LLM_TRANSLATE_BATCH( _
 
     If UBound(parts) - LBound(parts) + 1 = n Then
         For i = 1 To n
-            out(i) = Trim$(parts(LBound(parts) + (i - 1)))
+            out(i) = Trim$(parts(LBound(parts) + (i - 1)))   ' Trim leading/trailing whitespace  [8](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/ltrim-rtrim-and-trim-functions)
         Next i
         LLM_TRANSLATE_BATCH = out
         Exit Function
     End If
 
+    ' Fallback: per-line translation to preserve alignment if the model ignored the delimiter rule
     For i = 1 To n
         out(i) = LLM_TRANSLATE(CStr(lines(LBound(lines) + (i - 1))), _
                                targetLang, sourceLang, customPrompt, _
                                temperature, maxTokens, model, baseUrl, showThink, apiKey)
-        DoEvents
+        DoEvents   ' keep UI responsive  [9](https://learn.microsoft.com/vi-vn/office/vba/language/reference/user-interface-help/doevents-function)
     Next i
 
     LLM_TRANSLATE_BATCH = out
 End Function
-
 Private Function CleanLLMText(ByVal s As String) As String
     s = Replace(s, vbCrLf, vbLf)
     s = Replace(s, vbCr, vbLf)
     s = Replace(s, "```", "")
-    s = Trim$(s)
+    s = Trim$(s)   ' Trim whitespace  [8](https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/ltrim-rtrim-and-trim-functions)
     CleanLLMText = s
 End Function
 
+
 ' =========================
-' Small helpers
+' Small helpers (Range/columns)
 ' =========================
-' Resolve column reference (letter or number) to numeric index
-' Returns 0 if invalid
 Private Function ResolveColumnIndex(ByVal colRef As Variant) As Long
+    ' Accepts "H", "AA", 8, etc.
     Dim s As String, i As Long, res As Long
     If IsNumeric(colRef) Then
         ResolveColumnIndex = CLng(colRef)
