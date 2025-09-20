@@ -38,7 +38,7 @@ Private Const DEFAULT_TLANG    As String   = "en"                         ' targ
 ' It will ask you for a destination column (any column), target language, and optional model/base URL.
 
 ' Optional: show a live status in Excel's status bar while running
-Private Const SHOW_STATUS      As Boolean  = True
+Private Const SHOW_STATUS As Boolean = True
 
 ' Session cache for duplicates in one run
 Private gTranslateCache As Object   ' Scripting.Dictionary
@@ -147,9 +147,41 @@ Public Sub BatchTranslate_WithDefaults()
         baseUrl = Trim$(inBase)
     End If
 
+' --- helpers: tolerant numeric parsing (place once at module bottom) ---
+' Returns Empty if blank or non-numeric. Accepts either "." or "," as decimal.
+Private Function ParseDoubleOpt(ByVal s As String) As Variant
+    Dim ds As String: ds = Application.International(xlDecimalSeparator)
+    s = Trim$(s)
+    If s = "" Then Exit Function
+    ' normalize alternate decimal separator
+    If ds = "." Then s = Replace(s, ",", ".") Else s = Replace(s, ".", ",")
+    If IsNumeric(s) Then ParseDoubleOpt = CDbl(s)
+End Function
+
+Private Function ParseLongOpt(ByVal s As String) As Variant
+    s = Trim$(s)
+    If s = "" Then Exit Function
+    If IsNumeric(s) Then ParseLongOpt = CLng(s)
+End Function
+
+' --- use the helpers in your prompts ---
+inTemp = InputBox("Temperature (optional numeric – blank = provider default)", "Temperature", "")
+temperature = ParseDoubleOpt(inTemp)     ' Empty if invalid or blank
+
+inMaxTok = InputBox("Max tokens (optional numeric – blank = default)", "Max Tokens", "")
+maxTokens = ParseLongOpt(inMaxTok)       ' Empty if invalid or blank
+
+inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
+                   "Press Enter to use default: " & DEFAULT_CHUNK, "Chunk Size", CStr(DEFAULT_CHUNK))
+If IsEmpty(ParseLongOpt(inChunk)) Then
+    countRows = DEFAULT_CHUNK
+Else
+    countRows = ParseLongOpt(inChunk)
+    If countRows < 1 Then countRows = DEFAULT_CHUNK
+End If
     ' --- Build destination range, confirm overwrite ---
-    Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
-                                ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
+Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
+    ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
 
     On Error Resume Next
     hasData = (Application.WorksheetFunction.CountA(destColRange) > 0)
