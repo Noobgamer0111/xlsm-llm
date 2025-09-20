@@ -75,29 +75,32 @@ Public Sub BatchTranslate_WithDefaults()
     Set srcCol = sel
 
     ' --- Gather overrides with defaults pre-filled (press Enter = use default) ---
+inMaxTok = InputBox("Max tokens (optional numeric – blank = default)", "Max Tokens", "")
+maxTokens = ParseLongOpt(inMaxTok)       ' Empty if invalid or blank
+inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
     inDestCol = InputBox("Destination column (letter or number)" & vbCrLf & _
                          "Press Enter to use default: " & DEFAULT_DEST_COL, _
                          "Destination Column", DEFAULT_DEST_COL)
-    If StrPtr(inDestCol) = 0 Then inDestCol = DEFAULT_DEST_COL ' Cancel => default
+    If inDestCol = "" Then inDestCol = DEFAULT_DEST_COL
     destColIndex = ResolveColumnIndex(inDestCol)
-    If destColIndex < 1 Or destColIndex > Columns.Count Then
+    If destColIndex < 1 Or destColIndex > ws.Columns.Count Then
         MsgBox "Invalid destination column.", vbCritical: Exit Sub
     End If
 
     inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
                        "Press Enter to use default: " & DEFAULT_CHUNK, _
                        "Chunk Size", CStr(DEFAULT_CHUNK))
-    If StrPtr(inChunk) = 0 Or Trim$(inChunk) = "" Then
+    If IsEmpty(ParseLongOpt(inChunk)) Then
         countRows = DEFAULT_CHUNK
     Else
-        countRows = CLng(inChunk)
+        countRows = ParseLongOpt(inChunk)
         If countRows < 1 Then countRows = DEFAULT_CHUNK
     End If
 
     inTL = InputBox("Target language (e.g., en, ko, ja)" & vbCrLf & _
                     "Press Enter to use default: " & DEFAULT_TLANG, _
                     "Target Language", DEFAULT_TLANG)
-    If StrPtr(inTL) = 0 Or Trim$(inTL) = "" Then
+    If inTL = "" Then
         targetLang = DEFAULT_TLANG
     Else
         targetLang = Trim$(inTL)
@@ -105,34 +108,22 @@ Public Sub BatchTranslate_WithDefaults()
 
     inPrompt = InputBox("Custom prompt (optional). If set, it overrides default translation instruction." & vbCrLf & _
                         "Press Enter to leave empty.", "Custom Prompt", "")
-    If StrPtr(inPrompt) = 0 Then inPrompt = ""
     customPrompt = inPrompt
 
     inSL = InputBox("Source language (optional – blank = auto)", _
                     "Source Language", "")
-    If StrPtr(inSL) = 0 Then inSL = ""
     sourceLang = inSL
 
-    inTemp = InputBox("Temperature (optional numeric – blank = provider default)", _
-                      "Temperature", "")
-    If StrPtr(inTemp) = 0 Or Trim$(inTemp) = "" Then
-        temperature = Empty
-    Else
-        temperature = CDbl(inTemp)
-    End If
+    inTemp = InputBox("Temperature (optional numeric – blank = provider default)", "Temperature", "")
+    temperature = ParseDoubleOpt(inTemp)     ' Empty if invalid or blank
 
-    inMaxTok = InputBox("Max tokens (optional numeric – blank = default)", _
-                        "Max Tokens", "")
-    If StrPtr(inMaxTok) = 0 Or Trim$(inMaxTok) = "" Then
-        maxTokens = Empty
-    Else
-        maxTokens = CLng(inMaxTok)
-    End If
+    inMaxTok = InputBox("Max tokens (optional numeric – blank = default)", "Max Tokens", "")
+    maxTokens = ParseLongOpt(inMaxTok)       ' Empty if invalid or blank
 
     inModel = InputBox("Model (optional – blank = default)" & vbCrLf & _
                        "Press Enter to use default: " & DEFAULT_MODEL, _
                        "Model", DEFAULT_MODEL)
-    If StrPtr(inModel) = 0 Or Trim$(inModel) = "" Then
+    If inModel = "" Then
         model = DEFAULT_MODEL
     Else
         model = Trim$(inModel)
@@ -141,47 +132,14 @@ Public Sub BatchTranslate_WithDefaults()
     inBase = InputBox("Base URL (optional – blank = default)" & vbCrLf & _
                       "Press Enter to use default: " & DEFAULT_BASE_URL, _
                       "Base URL", DEFAULT_BASE_URL)
-    If StrPtr(inBase) = 0 Or Trim$(inBase) = "" Then
+    If inBase = "" Then
         baseUrl = DEFAULT_BASE_URL
     Else
         baseUrl = Trim$(inBase)
     End If
-
-' --- helpers: tolerant numeric parsing (place once at module bottom) ---
-' Returns Empty if blank or non-numeric. Accepts either "." or "," as decimal.
-Private Function ParseDoubleOpt(ByVal s As String) As Variant
-    Dim ds As String: ds = Application.International(xlDecimalSeparator)
-    s = Trim$(s)
-    If s = "" Then Exit Function
-    ' normalize alternate decimal separator
-    If ds = "." Then s = Replace(s, ",", ".") Else s = Replace(s, ".", ",")
-    If IsNumeric(s) Then ParseDoubleOpt = CDbl(s)
-End Function
-
-Private Function ParseLongOpt(ByVal s As String) As Variant
-    s = Trim$(s)
-    If s = "" Then Exit Function
-    If IsNumeric(s) Then ParseLongOpt = CLng(s)
-End Function
-
-' --- use the helpers in your prompts ---
-inTemp = InputBox("Temperature (optional numeric – blank = provider default)", "Temperature", "")
-temperature = ParseDoubleOpt(inTemp)     ' Empty if invalid or blank
-
-inMaxTok = InputBox("Max tokens (optional numeric – blank = default)", "Max Tokens", "")
-maxTokens = ParseLongOpt(inMaxTok)       ' Empty if invalid or blank
-
-inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
-                   "Press Enter to use default: " & DEFAULT_CHUNK, "Chunk Size", CStr(DEFAULT_CHUNK))
-If IsEmpty(ParseLongOpt(inChunk)) Then
-    countRows = DEFAULT_CHUNK
-Else
-    countRows = ParseLongOpt(inChunk)
-    If countRows < 1 Then countRows = DEFAULT_CHUNK
-End If
     ' --- Build destination range, confirm overwrite ---
-Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
-    ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
+    Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
+        ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
 
     On Error Resume Next
     hasData = (Application.WorksheetFunction.CountA(destColRange) > 0)
@@ -388,9 +346,24 @@ Public Function LLM_TRANSLATE_BATCH( _
     LLM_TRANSLATE_BATCH = out
 End Function
 
-' =========================
-' Small helpers
-' =========================
+'' =========================
+'' Small helpers
+'' =========================
+
+Private Function ParseDoubleOpt(ByVal s As String) As Variant
+    Dim ds As String: ds = Application.International(xlDecimalSeparator)
+    s = Trim$(s)
+    If s = "" Then Exit Function
+    ' normalize alternate decimal separator
+    If ds = "." Then s = Replace(s, ",", ".") Else s = Replace(s, ".", ",")
+    If IsNumeric(s) Then ParseDoubleOpt = CDbl(s)
+End Function
+
+Private Function ParseLongOpt(ByVal s As String) As Variant
+    s = Trim$(s)
+    If s = "" Then Exit Function
+    If IsNumeric(s) Then ParseLongOpt = CLng(s)
+End Function
 Private Function ResolveColumnIndex(ByVal colRef As Variant) As Long
     Dim s As String, i As Long, res As Long
     If IsNumeric(colRef) Then ResolveColumnIndex = CLng(colRef): Exit Function
