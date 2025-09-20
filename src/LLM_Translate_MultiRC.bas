@@ -485,3 +485,24 @@ Public Function LLM_TRANSLATE_RANGE_BATCH( _
 FailHard:
     LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrValue)
 End Function
+
+' Run once (manually) to register help text for the Function Wizard
+Public Sub RegisterUDFHelp()
+    Application.MacroOptions _
+        Macro:="LLM_TRANSLATE_RANGE_BATCH", _
+        Description:="Batch-translate a single-column range in chunks of up to 200 rows via your LLM endpoint.", _
+        Category:="User Defined", _
+        ArgumentDescriptions:=Array( _
+            "Range to translate (single column)", _
+            "Target language (e.g., ""en"", ""ko"", ""Japanese"")", _
+            "Source language (optional)", _
+            "Custom prompt (optional; overrides default translate instruction)", _
+            "Temperature (optional, numeric)", _
+            "maxTokens (optional, numeric)", _
+            "Model name (optional; e.g., LM Studio model id)", _
+            "Base URL (optional; e.g., http://localhost:1234/v1)", _
+            "Show hidden reasoning (Boolean; usually False)", _
+            "API key (optional)" _
+        )
+End Sub
+' =========================
