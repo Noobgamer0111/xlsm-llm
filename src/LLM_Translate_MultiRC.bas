@@ -27,7 +27,7 @@
 '   model:="nvidia_riva-translate-4b-instruct", baseURL:="http://localhost:1234/v1/"
 'Function to translate multiple columns of text at batch rate.
 
-Option Explicit ' Add the config starting with "Private Const" to the first block in LLM_Functions.bas
+Option Explicit ' Add the config starting with "Private Const" to "session cache" to the first block in LLM_Functions.bas
 
 ' =========================
 ' Config
@@ -35,9 +35,8 @@ Option Explicit ' Add the config starting with "Private Const" to the first bloc
 Private Const CHUNK_ROWS As Long = 200
 Private Const UDF_CHUNK_ROWS As Long = 200
 Private Const ROW_DELIM As String = "<<<__ROW_DELIM__>>>"
-
-
 Private gTranslateCache As Object ' Scripting.Dictionary (session cache)
+
 ' =========================
 ' Public macro:
 '   Translate the selected single column INTO a fixed destination column (e.g., "H"),
