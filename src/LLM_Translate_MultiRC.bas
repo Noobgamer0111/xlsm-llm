@@ -75,21 +75,13 @@ Public Sub BatchTranslate_WithDefaults()
     Set srcCol = sel
 
     ' --- Gather overrides with defaults pre-filled (press Enter = use default) ---
-inMaxTok = InputBox("Max tokens (optional numeric – blank = default)", "Max Tokens", "")
-maxTokens = ParseLongOpt(inMaxTok)       ' Empty if invalid or blank
-inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
-    inDestCol = InputBox("Destination column (letter or number)" & vbCrLf & _
-                         "Press Enter to use default: " & DEFAULT_DEST_COL, _
-                         "Destination Column", DEFAULT_DEST_COL)
-    If inDestCol = "" Then inDestCol = DEFAULT_DEST_COL
-    destColIndex = ResolveColumnIndex(inDestCol)
-    If destColIndex < 1 Or destColIndex > ws.Columns.Count Then
-        MsgBox "Invalid destination column.", vbCritical: Exit Sub
-    End If
+inDestCol = InputBox("Destination column (letter or number)" & vbCrLf & _
+                     "Press Enter to use default: " & DEFAULT_DEST_COL, _
+                     "Destination Column", DEFAULT_DEST_COL)
 
-    inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
-                       "Press Enter to use default: " & DEFAULT_CHUNK, _
-                       "Chunk Size", CStr(DEFAULT_CHUNK))
+inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
+                   "Press Enter to use default: " & DEFAULT_CHUNK, _
+                   "Chunk Size", CStr(DEFAULT_CHUNK))
     If IsEmpty(ParseLongOpt(inChunk)) Then
         countRows = DEFAULT_CHUNK
     Else
@@ -141,7 +133,29 @@ inChunk = InputBox("Chunk size = max rows per request" & vbCrLf & _
     Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
         ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
 
+    ' Unprotect worksheet if protected
+    If ws.ProtectContents Then
+        On Error Resume Next
+        ws.Unprotect
+        On Error GoTo ErrHandler
+    End If
+
+    ' Check for merged cells in destination range
+    Dim cell As Range, hasMerged As Boolean: hasMerged = False
+    For Each cell In destColRange
+        If cell.MergeCells Then
+            hasMerged = True
+            Exit For
+        End If
+    Next cell
+    If hasMerged Then
+        MsgBox "Destination range contains merged cells. Please unmerge before running.", vbCritical
+        Exit Sub
+    End If
+
+    ' Check for existing data
     On Error Resume Next
+    hasData = False
     hasData = (Application.WorksheetFunction.CountA(destColRange) > 0)
     On Error GoTo ErrHandler
     If hasData Then
@@ -243,12 +257,35 @@ Private Sub TranslateChunk( _
 
         For i = 1 To nToSend
             Dim rr As Long: rr = sendIdx(i)
-            outVals(rr, 1) = batchRes(i)
+            ' Ensure translation result is a string and not an error value
+            If IsError(batchRes(i)) Then
+                outVals(rr, 1) = "[Translation Error]"
+            ElseIf VarType(batchRes(i)) = vbString Or VarType(batchRes(i)) = vbVariant Then
+                outVals(rr, 1) = CStr(batchRes(i))
+            Else
+                outVals(rr, 1) = "[Invalid Result]"
+            End If
             Dim k As String: k = BuildCacheKey(sendText(i), targetLang, sourceLang, customPrompt, model, baseUrl)
             If Not gTranslateCache.Exists(k) Then gTranslateCache.Add k, outVals(rr, 1)
         Next i
     End If
+
+    ' Debug output before writing
+    Debug.Print "Writing to: " & dst.Address & " | Array size: " & UBound(outVals, 1) & " x " & UBound(outVals, 2)
+
+    ' Validate array size matches destination range
+    If dst.Rows.Count <> UBound(outVals, 1) Or dst.Columns.Count <> UBound(outVals, 2) Then
+        MsgBox "Output array size does not match destination range. Aborting write.", vbCritical
+        Exit Sub
+    End If
+
+    On Error Resume Next
     dst.Value = outVals      ' bulk write VALUES → no formulas, no spills
+    If Err.Number <> 0 Then
+        MsgBox "Error writing to destination range: " & Err.Description, vbCritical
+        Err.Clear
+    End If
+    On Error GoTo 0
 End Sub
 
 Private Sub EnsureCacheReady()
