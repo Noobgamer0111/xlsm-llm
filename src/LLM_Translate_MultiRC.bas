@@ -38,6 +38,35 @@ Private Const ROW_DELIM As String = "<<<__ROW_DELIM__>>>"
 Private gTranslateCache As Object ' Scripting.Dictionary (session cache)
 
 ' =========================
+' Model / Base URL resolution - Originally created by ychoi-kr (Yong Choi)
+' =========================
+' Modify ResolveModelAndBaseUrl function to no longer handle Solar models (LM Studio only).
+Private Function ResolveModelAndBaseUrl(ByRef modelName As String, ByRef baseUrl As String, _
+                                       Optional model As Variant, Optional baseUrlParam As Variant) As Boolean
+    ' Set model name from parameter or default
+    If Not IsMissing(model) And Not IsEmpty(model) Then
+        modelName = CStr(model)
+    Else
+        modelName = DEFAULT_MODEL
+    End If
+    
+    ' Set baseUrl from parameter or determine from model
+    If IsMissing(baseUrlParam) Or IsEmpty(baseUrlParam) Then
+        ' Auto-determine baseUrl from model name
+        baseUrl = GetBaseUrlFromModel(modelName)
+    Else
+        baseUrl = CStr(baseUrlParam)
+    End If
+    
+    ' Ensure URL ends with "/"
+    If Right(baseUrl, 1) <> "/" Then
+        baseUrl = baseUrl & "/"
+    End If
+    
+    ResolveModelAndBaseUrl = True
+End Function
+
+' =========================
 ' Public macro:
 '   Translate the selected single column INTO a fixed destination column (e.g., "H"),
 '   processing in 200-row chunks per LLM call.
