@@ -33,7 +33,9 @@ Option Explicit ' Add the config starting with "Private Const" to the first bloc
 ' Config
 ' =========================
 Private Const CHUNK_ROWS As Long = 200
+Private Const UDF_CHUNK_ROWS As Long = 200
 Private Const ROW_DELIM As String = "<<<__ROW_DELIM__>>>"
+
 
 Private gTranslateCache As Object ' Scripting.Dictionary (session cache)
 ' =========================
@@ -387,4 +389,99 @@ Private Function ColumnLetter(ByVal colIndex As Long) As String
         q = (q - 1) \ 26
     Loop
     ColumnLetter = s
+End Function
+
+' =========================
+' Batch UDF for translating a single-column range in chunks (≤200 rows per call). 
+' Returns a 2-D array (rows x 1) suitable for spilling from the top cell.
+Public Function LLM_TRANSLATE_RANGE_BATCH( _
+    ByVal rng As Range, _
+    Optional ByVal targetLang As String = "", _
+    Optional ByVal sourceLang As String = "", _
+    Optional ByVal customPrompt As String = "", _
+    Optional ByVal temperature As Variant, _
+    Optional ByVal maxTokens As Variant, _
+    Optional ByVal model As Variant, _
+    Optional ByVal baseUrl As Variant, _
+    Optional ByVal showThink As Boolean = False, _
+    Optional ByVal apiKey As Variant _
+) As Variant
+    On Error GoTo FailHard
+
+    If rng Is Nothing Then
+        LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrRef)
+        Exit Function
+    End If
+    If rng.Columns.Count <> 1 Then
+        ' Worksheet UDF: return an error if not a single column
+        LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrValue)
+        Exit Function
+    End If
+
+    Dim rows As Long: rows = rng.Rows.Count
+    Dim inVals As Variant: inVals = rng.Value2 ' 2-D [1..rows, 1..1]
+    Dim outArr() As Variant: ReDim outArr(1 To rows, 1 To 1)
+
+    ' Flatten into a 1-D 1-based array of strings for batch calls
+    Dim flat() As String: ReDim flat(1 To rows)
+    Dim isErr() As Boolean: ReDim isErr(1 To rows)
+    Dim r As Long, v As Variant
+    For r = 1 To rows
+        v = inVals(r, 1)
+        If IsError(v) Then
+            isErr(r) = True
+            flat(r) = ""       ' placeholder; we’ll restore the error later
+        ElseIf LenB(v) = 0 Then
+            flat(r) = ""       ' empty row stays empty
+        Else
+            flat(r) = CStr(v)
+        End If
+    Next r
+
+    ' Call the batch helper in 200-row chunks
+    Dim startRow As Long, countRows As Long
+    Dim i As Long, subOut As Variant
+    Dim outFlat() As Variant: ReDim outFlat(1 To rows)
+
+    startRow = 1
+    Do While startRow <= rows
+        countRows = UDF_CHUNK_ROWS
+        If startRow + countRows - 1 > rows Then
+            countRows = rows - startRow + 1
+        End If
+
+        ' Build subarray: 1..countRows
+        Dim subLines() As String
+        ReDim subLines(1 To countRows)
+        For i = 1 To countRows
+            subLines(i) = flat(startRow + i - 1)
+        Next i
+
+        ' One LLM request for this chunk
+        subOut = LLM_TRANSLATE_BATCH( _
+                     subLines, targetLang, sourceLang, customPrompt, _
+                     temperature, maxTokens, model, baseUrl, showThink, apiKey)
+
+        ' Copy chunk back
+        For i = 1 To countRows
+            outFlat(startRow + i - 1) = subOut(i)
+        Next i
+
+        startRow = startRow + countRows
+    Loop
+
+    ' Shape into a 2-D array (rows x 1); restore any source errors
+    For r = 1 To rows
+        If isErr(r) Then
+            outArr(r, 1) = inVals(r, 1) ' preserve original Excel error
+        Else
+            outArr(r, 1) = outFlat(r)
+        End If
+    Next r
+
+    LLM_TRANSLATE_RANGE_BATCH = outArr
+    Exit Function
+
+FailHard:
+    LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrValue)
 End Function
