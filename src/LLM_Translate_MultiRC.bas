@@ -18,10 +18,6 @@
 
 ' You can adjust this value based on your LLM's capabilities and hardware performance.
 ' Number of rows to process in one batch call. I would not exceed 200 for most LLMs.
-Option Explicit
-Private Const CHUNK_ROWS As Long = 200
-Private Const ROW_DELIM As String = "<<<___ROW_DELIM___>>>"
-Private gTranslateCache As Object
 
 ' The user must specify the focus cell range or cell to translate.
 ' Usage - Select a single-column range (e.g. A2:A234).
@@ -30,6 +26,11 @@ Private gTranslateCache As Object
 ' Sample call: Translate_SelectedColumn2Column_200 destColumn:="H", targetLang:="en", _
 '   model:="nvidia_riva-translate-4b-instruct", baseURL:="http://localhost:1234/v1/"
 'Function to translate multiple columns of text at batch rate.
+
+Option Explicit
+Private Const CHUNK_ROWS As Long = 200
+Private Const ROW_DELIM As String = "<<<___ROW_DELIM___>>>"
+Private gTranslateCache As Object
 
 Public Sub TranslateSelectedColumnToColumn_200( _
     Optional ByVal destColumn As Variant = "H", _
@@ -59,7 +60,6 @@ Public Sub TranslateSelectedColumnToColumn_200( _
         Exit Sub
     End If
 
-    ' Require either a target language or a custom prompt (matches your LLM_TRANSLATE logic)
     If Trim$(targetLang) = "" And Trim$(customPrompt) = "" Then
         targetLang = InputBox("Target language (e.g., en, ko, Japanese). Leave blank only if using a custom prompt.", _
                               "Translate Column → Specific Column", "en")
@@ -70,7 +70,6 @@ Public Sub TranslateSelectedColumnToColumn_200( _
         End If
     End If
 
-    ' Resolve the destination column index (letter like "H" or numeric like 8)
     destColIndex = ResolveColumnIndex(destColumn)
     If destColIndex < 1 Or destColIndex > Columns.Count Then
         MsgBox "Invalid destination column: " & CStr(destColumn), vbCritical
@@ -80,11 +79,9 @@ Public Sub TranslateSelectedColumnToColumn_200( _
     Set ws = sel.Worksheet
     Set srcCol = sel
 
-    ' Destination: same rows as the selection, but fixed column (e.g., H)
     Set destColRange = ws.Range(ws.Cells(sel.Row, destColIndex), _
                                 ws.Cells(sel.Row + sel.Rows.Count - 1, destColIndex))
 
-    ' Warn if overwriting existing content
     On Error Resume Next
     Dim hasData As Boolean
     hasData = (Application.WorksheetFunction.CountA(destColRange) > 0)
@@ -243,7 +240,6 @@ Public Function LLM_TRANSLATE_BATCH( _
         Exit Function
     End If
 
-    ' Build batch prompt
     Dim sep As String: sep = ROW_DELIM
     Dim hdr As String
     If customPrompt <> "" Then
@@ -290,7 +286,6 @@ Public Function LLM_TRANSLATE_BATCH( _
         Exit Function
     End If
 
-    ' Fallback: per-line using your existing single-text function
     For i = 1 To n
         out(i) = LLM_TRANSLATE(CStr(lines(LBound(lines) + (i - 1))), _
                                targetLang, sourceLang, customPrompt, _
@@ -312,9 +307,9 @@ End Function
 ' =========================
 ' Small helpers
 ' =========================
-
+' Resolve column reference (letter or number) to numeric index
+' Returns 0 if invalid
 Private Function ResolveColumnIndex(ByVal colRef As Variant) As Long
-    ' Accepts "H", "AA", 8, etc.
     Dim s As String, i As Long, res As Long
     If IsNumeric(colRef) Then
         ResolveColumnIndex = CLng(colRef)
