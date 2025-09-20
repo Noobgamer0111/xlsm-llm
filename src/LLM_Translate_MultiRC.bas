@@ -29,7 +29,6 @@ Option Explicit ' Add the config starting with "Private Const" to "session cache
 Private Const CHUNK_ROWS As Long = 20
 Private Const UDF_CHUNK_ROWS As Long = 20
 Private Const ROW_DELIM As String = "<<<__ROW_DELIM__>>>"
-Private gTranslateCache As Object ' Scripting.Dictionary (session cache)
 Private Const DEFAULT_BASE_URL As String   = "http://localhost:1234/v1"   ' LM Studio default
 Private Const DEFAULT_MODEL    As String   = "your-lmstudio-model-name"   ' e.g., "qwen2.5-7b-instruct"
 Private Const DEFAULT_CHUNK    As Long     = 200                          ' rows per request
@@ -209,6 +208,7 @@ ErrHandler:
     MsgBox "Translation stopped: " & Err.Description, vbExclamation
     Resume SafeExit
 End Sub
+
 ' =========================
 ' CHUNK TRANSLATION + CACHE
 ' =========================
@@ -275,6 +275,87 @@ Private Function BuildCacheKey(ByVal text As String, ByVal targetLang As String,
                     "||" & CStr(model) & "||" & CStr(baseUrl)
 End Function
 
+Public Function LLM_TRANSLATE_BATCH( _
+    ByVal lines As Variant, _
+    Optional ByVal targetLang As String = "", _
+    Optional ByVal sourceLang As String = "", _
+    Optional ByVal customPrompt As String = "", _
+    Optional ByVal temperature As Variant, _
+    Optional ByVal maxTokens As Variant, _
+    Optional ByVal model As Variant, _
+    Optional ByVal baseUrl As Variant, _
+    Optional ByVal showThink As Boolean = False, _
+    Optional ByVal apiKey As Variant _
+) As Variant
+    Dim modelName As String, effectiveBaseUrl As String
+    Call ResolveModelAndBaseUrl(modelName, effectiveBaseUrl, model, baseUrl)
+
+    Dim n As Long
+    n = UBound(lines) - LBound(lines) + 1
+    If n <= 0 Then
+        Dim emptyOut() As Variant
+        ReDim emptyOut(1 To 0)
+        LLM_TRANSLATE_BATCH = emptyOut
+        Exit Function
+    End If
+
+    Dim sep As String: sep = ROW_DELIM
+    Dim hdr As String
+    If customPrompt <> "" Then
+        hdr = customPrompt
+    ElseIf sourceLang <> "" Then
+        hdr = "Translate each item from " & sourceLang & " to " & targetLang & "."
+    Else
+        hdr = "Translate each item to " & targetLang & "."
+    End If
+
+    Dim rules As String
+    rules = "There are exactly " & CStr(n) & " items." & vbCrLf & _
+            "Items are separated by the delimiter: " & sep & vbCrLf & _
+            "Respond with ONLY the translations in the same order, joined with the same delimiter (" & sep & "). " & _
+            "No numbering, no extra text. Empty inputs must produce empty outputs."
+
+    Dim inputBlock As String, i As Long
+    For i = LBound(lines) To UBound(lines)
+        If i > LBound(lines) Then inputBlock = inputBlock & vbCrLf & sep & vbCrLf
+        inputBlock = inputBlock & CStr(lines(i))
+    Next i
+
+    Dim finalPrompt As String
+    finalPrompt = hdr & vbCrLf & vbCrLf & rules & vbCrLf & vbCrLf & "INPUT:" & vbCrLf & inputBlock
+
+    Dim response As String
+    response = LLM_Dispatcher(finalPrompt, "", temperature, maxTokens, modelName, effectiveBaseUrl, apiKey)
+
+    Dim body As String
+    body = ProcessLLMResponse(response, False)
+    body = CleanLLMText(body)
+
+    Dim parts As Variant
+    parts = Split(body, sep)
+
+    Dim out() As Variant
+    ReDim out(1 To n)
+
+    If UBound(parts) - LBound(parts) + 1 = n Then
+        For i = 1 To n
+            out(i) = Trim$(parts(LBound(parts) + (i - 1)))
+        Next i
+        LLM_TRANSLATE_BATCH = out
+        Exit Function
+    End If
+
+    ' Fallback: per-line if the delimiter spec wasn't followed
+    For i = 1 To n
+        out(i) = LLM_TRANSLATE(CStr(lines(LBound(lines) + (i - 1))), _
+                               targetLang, sourceLang, customPrompt, _
+                               temperature, maxTokens, model, baseUrl, showThink, apiKey)
+        'DoEvents    ' optional / sparing use
+    Next i
+
+    LLM_TRANSLATE_BATCH = out
+End Function
+
 ' =========================
 ' Small helpers
 ' =========================
@@ -299,4 +380,12 @@ Private Function ColumnLetter(ByVal colIndex As Long) As String
         q = (q - 1) \ 26
     Loop
     ColumnLetter = s
+End Function
+
+Private Function CleanLLMText(ByVal s As String) As String
+    s = Replace(s, vbCrLf, vbLf)
+    s = Replace(s, vbCr, vbLf)
+    s = Replace(s, "```", "")
+    s = Trim$(s)
+    CleanLLMText = s
 End Function
