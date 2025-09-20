@@ -63,7 +63,7 @@ Public Sub BatchTranslate_ToChosenColumn()
 
     ' ---- Validate selection ----
     If TypeName(Selection) <> "Range" Then
-        MsgBox "Please select a single contiguous column range (e.g., E2:E20).", vbExclamation
+        MsgBox "Please select a single contiguous column range (e.g., E2:E200).", vbExclamation
         Exit Sub
     End If
 
@@ -303,7 +303,6 @@ Private Sub EnsureCacheReady()
     End If
 End Sub
 
-
 ' =========================
 ' BATCH CALL (1 LLM REQUEST FOR MANY LINES)
 ' =========================
@@ -398,7 +397,6 @@ Private Function CleanLLMText(ByVal s As String) As String
     CleanLLMText = s
 End Function
 
-
 ' =========================
 ' Helpers for column parsing
 ' =========================
@@ -438,6 +436,161 @@ Private Function ColumnLetter(ByVal colIndex As Long) As String
 End Function
 
 ' =========================
+' Batch UDF for translating a single-column range in chunks (≤200 rows per call). 
+' Returns a 2-D array (rows x 1) suitable for spilling from the top cell.
+Public Function LLM_TRANSLATE_RANGE_BATCH( _
+    ByVal rng As Range, _
+    ByVal destColumn As Variant, _
+    Optional ByVal targetLang As String = "", _
+    Optional ByVal sourceLang As String = "", _
+    Optional ByVal customPrompt As String = "", _
+    Optional ByVal temperature As Variant, _
+    Optional ByVal maxTokens As Variant, _
+    Optional ByVal model As Variant, _
+    Optional ByVal baseUrl As Variant, _
+    Optional ByVal showThink As Boolean = False, _
+    Optional ByVal apiKey As Variant _
+) As Variant
+    On Error GoTo FailHard
+
+    If rng Is Nothing Then
+        LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrRef)
+        Exit Function
+    End If
+    If rng.Columns.Count <> 1 Then
+        ' Worksheet UDF: return an error if not a single column
+        LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrValue)
+        Exit Function
+    End If
+
+    Dim rows As Long: rows = rng.Rows.Count
+    Dim inVals As Variant: inVals = rng.Value2 ' 2-D [1..rows, 1..1]
+    Dim outArr() As Variant: ReDim outArr(1 To rows, 1 To 1)
+
+    ' Flatten into a 1-D 1-based array of strings for batch calls
+    Dim flat() As String: ReDim flat(1 To rows)
+    Dim isErr() As Boolean: ReDim isErr(1 To rows)
+    Dim r As Long, v As Variant
+    For r = 1 To rows
+        v = inVals(r, 1)
+        If IsError(v) Then
+            isErr(r) = True
+            flat(r) = ""       ' placeholder; we’ll restore the error later
+        ElseIf LenB(v) = 0 Then
+            flat(r) = ""       ' empty row stays empty
+        Else
+            flat(r) = CStr(v)
+        End If
+    Next r
+
+    ' Call the batch helper in 200-row chunks
+    Dim startRow As Long, countRows As Long
+    Dim i As Long, subOut As Variant
+    Dim outFlat() As Variant: ReDim outFlat(1 To rows)
+
+    startRow = 1
+    Do While startRow <= rows
+        countRows = UDF_CHUNK_ROWS
+        If startRow + countRows - 1 > rows Then
+            countRows = rows - startRow + 1
+        End If
+
+        ' Build subarray: 1..countRows
+        Dim subLines() As String
+        ReDim subLines(1 To countRows)
+        For i = 1 To countRows
+            subLines(i) = flat(startRow + i - 1)
+        Next i
+
+        ' One LLM request for this chunk
+        subOut = LLM_TRANSLATE_BATCH( _
+                     subLines, targetLang, sourceLang, customPrompt, _
+                     temperature, maxTokens, model, baseUrl, showThink, apiKey)
+
+        ' Copy chunk back
+        For i = 1 To countRows
+            outFlat(startRow + i - 1) = subOut(i)
+        Next i
+
+        startRow = startRow + countRows
+    Loop
+
+    ' Shape into a 2-D array (rows x 1); restore any source errors
+    For r = 1 To rows
+        If isErr(r) Then
+            outArr(r, 1) = inVals(r, 1) ' preserve original Excel error
+        Else
+            outArr(r, 1) = outFlat(r)
+        End If
+    Next r
+
+    LLM_TRANSLATE_RANGE_BATCH = outArr
+    Exit Function
+
+FailHard:
+    LLM_TRANSLATE_RANGE_BATCH = CVErr(xlErrValue)
+End Function
+
+
+' New worksheet UDF that adds a Destination Column argument.
+' IMPORTANT: UDFs cannot write to other cells—Excel will place the returned array
+' where the formula is entered. We validate the placement using Application.Caller. (See MS docs)
+' https://learn.microsoft.com/en-us/office/vba/api/excel.application.caller
+Public Function LLM_TRANSLATE_RANGE_TO( _
+    ByVal rng As Range, _
+    ByVal destColumn As Variant, _
+    Optional ByVal targetLang As String = "", _
+    Optional ByVal sourceLang As String = "", _
+    Optional ByVal customPrompt As String = "", _
+    Optional ByVal temperature As Variant, _
+    Optional ByVal maxTokens As Variant, _
+    Optional ByVal model As Variant, _
+    Optional ByVal baseUrl As Variant, _
+    Optional ByVal showThink As Boolean = False, _
+    Optional ByVal apiKey As Variant _
+) As Variant
+    On Error GoTo FailHard
+
+    ' Basic validation: single column range
+    If rng Is Nothing Or rng.Columns.Count <> 1 Then
+        LLM_TRANSLATE_RANGE_TO = CVErr(xlErrValue)
+        Exit Function
+    End If
+
+    ' Validate destination column against where the formula is entered
+    Dim destColIndex As Long
+    destColIndex = ResolveColumnIndex(destColumn)
+    If destColIndex < 1 Or destColIndex > Columns.Count Then
+        LLM_TRANSLATE_RANGE_TO = CVErr(xlErrValue)
+        Exit Function
+    End If
+
+    ' Application.Caller returns the calling Range for UDFs in cells (or arrays).
+    ' If the caller is a multi-cell spill, we only need its top-left cell’s column.
+    Dim callerRange As Variant
+    callerRange = Application.Caller ' could be Range / String / Error (per docs)
+    If TypeName(callerRange) = "Range" Then
+        Dim callerCol As Long
+        callerCol = callerRange.Columns(1).Column
+        If callerCol <> destColIndex Then
+            ' Placed in the "wrong" column—return an error to signal misplacement.
+            ' (UDFs cannot write elsewhere by design.)
+            LLM_TRANSLATE_RANGE_TO = CVErr(xlErrValue)
+            Exit Function
+        End If
+    End If
+
+    ' Forward work to the batch translator (chunks of 200 inside it).
+    ' NOTE: UDF returns a 2-D array (rows x 1) that will spill from the formula cell.
+    LLM_TRANSLATE_RANGE_TO = LLM_TRANSLATE_RANGE_BATCH( _
+                                rng, targetLang, sourceLang, customPrompt, _
+                                temperature, maxTokens, model, baseUrl, showThink, apiKey)
+    Exit Function
+FailHard:
+    LLM_TRANSLATE_RANGE_TO = CVErr(xlErrValue)
+End Function
+
+' =========================
 ' Run once (manually) to register help text for the Function Wizard
 Public Sub RegisterUDFHelp()
     Application.MacroOptions _
@@ -455,6 +608,24 @@ Public Sub RegisterUDFHelp()
             "Base URL (optional; e.g., http://localhost:1234/v1)", _
             "Show hidden reasoning (Boolean; usually False)", _
             "API key (optional)" _
+    
+ '--- LLM_TRANSLATE_RANGE_TO (new; includes Destination Column) ---
+    Application.MacroOptions _
+        Macro:="LLM_TRANSLATE_RANGE_TO", _
+        Description:="Batch-translate a single-column range and *choose* a destination column. NOTE: Excel writes UDF results where the formula is entered; place the formula in the destination column's top cell. The function validates that placement.", _
+        Category:="User Defined", _
+        ArgumentDescriptions:=Array( _
+            "Range to translate (single column)", _
+            "Destination column letter or index (e.g., ""H"" or 8). Place formula in the first cell of that column; UDFs cannot write to other cells.", _
+            "Target language (e.g., ""en"", ""ko"", ""Japanese"")", _
+            "Source language (optional)", _
+            "Custom prompt (optional; overrides default translate instruction)", _
+            "Temperature (optional, numeric)", _
+            "maxTokens (optional, numeric)", _
+            "Model name (optional; e.g., LM Studio model id)", _
+            "Base URL (optional; e.g., http://localhost:1234/v1)", _
+            "Show hidden reasoning (Boolean; usually FALSE)", _
+            "API key (optional)" _
         )
 End Sub
-' =========================
+
