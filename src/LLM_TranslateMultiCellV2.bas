@@ -289,3 +289,8 @@ Private Function SafeText(ByVal v As Variant) As String
 Fallback:
     SafeText = ""
 End Function
+
+Public Sub Run_TranslateSelection()
+    ' Calls the main macro with defaults
+    Call TranslateSelection_WithLMStudio
+End Sub
