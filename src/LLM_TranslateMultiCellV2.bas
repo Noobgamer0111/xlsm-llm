@@ -109,7 +109,12 @@ NextCell:
         
         ' Build batch prompt
         Dim prompt As String
-        prompt = BuildBatchPrompt(srcCells, startRowIndex, endRowIndex, TargetLang)
+        prompt = "<s>System" & vbCrLf & _
+                 "You are an expert at translating text from " & OriginalLang & " to " & targetLang & ".</s>" & vbCrLf & _
+                 "<s>User" & vbCrLf & _
+                 "What is the " & targetLang & " translation of the sentence: " & srcText & "?</s>" & vbCrLf & _
+                 "<s>Assistant" & vbCrLf & _
+                 "<br>"
         
         ' Call LLM_LIST (returns Variant array of strings)
         Dim items As Variant
@@ -178,18 +183,19 @@ CleanFail:
 End Sub
 
 ' Build a strict batch prompt that maps one source line to one target <item>
-Private Function BuildBatchPrompt(ByVal srcCells As Collection, ByVal sIdx As Long, ByVal eIdx As Long, ByVal targetLang As String) As String
+Private Function BuildBatchPrompt(ByVal srcCells As Collection, ByVal sIdx As Long, ByVal eIdx As Long, ByVal targetLang As String, ByVal OriginalLang As String) As String
     Dim sb As String
     Dim i As Long
     
     sb = ""
-    sb = sb & "Translate each of the following items from their original language, "& originalLang &" into " & targetLang & "." & vbCrLf
-    sb = sb & "For each <item>, output the translation in " & targetLang & ", not a copy of the original text." & vbCrLf
-    sb = sb & "Rules:" & vbCrLf
-    sb = sb & "- Output EXACTLY one <item> per input item, in order, with no commentary." & vbCrLf
-    sb = sb & "- Do NOT add numbering, punctuation, or quotes unless present in the input." & vbCrLf
-    sb = sb & "- Keep line counts identical; return only the translations, not the original text." & vbCrLf
-    sb = sb & "<list>" ' ...existing code...
+    sb = sb & "Translate each of the following items from " & OriginalLang & " to " & targetLang & "." & vbCrLf
+    sb = sb & "Output ONLY a <list> containing one <item> for each input, in order, with NO commentary, NO instructions, and NO repetition of the original text." & vbCrLf
+    sb = sb & "For example, if the input is:" & vbCrLf
+    sb = sb & "<item>Hello</item><item>World</item>" & vbCrLf
+    sb = sb & "and the target language is French, output:" & vbCrLf
+    sb = sb & "<list><item>Bonjour</item><item>Monde</item></list>" & vbCrLf
+    sb = sb & "Now translate the following:" & vbCrLf
+    sb = sb & "<list>"
     
     For i = sIdx To eIdx
         Dim srcText As String
