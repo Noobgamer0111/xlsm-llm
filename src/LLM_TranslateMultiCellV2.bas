@@ -187,8 +187,6 @@ Private Function BuildBatchPrompt(ByVal srcCells As Collection, ByVal sIdx As Lo
     sb = sb & "- Output EXACTLY one <item> per input item, in order, with no commentary." & vbCrLf
     sb = sb & "- Do NOT add numbering, punctuation, or quotes unless present in the input." & vbCrLf
     sb = sb & "- Keep line counts identical; return only:" & vbCrLf
-    sb = sb & "<list><item>[t1]</item><item>[t2]</item>...</list>" & vbCrLf & vbCrLf
-    sb = sb & "<list>"
     
     For i = sIdx To eIdx
         Dim srcText As String
@@ -290,8 +288,7 @@ Fallback:
     SafeText = ""
 End Function
 
-Public Sub Run_TranslateSelection()
-    Public Sub Run_TranslateSelection_Prompt()
+Public Sub Run_TranslateSelection_Prompt()
     Dim tgtLang As String
     Dim colOffset As Long
     Dim batchSize As Long
