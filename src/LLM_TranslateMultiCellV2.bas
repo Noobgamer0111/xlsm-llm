@@ -17,6 +17,7 @@ Private Const DEFAULT_SHOW_THINK As Boolean = False                      ' Do no
 ' Entry point: translate the current Selection to a different column
 Public Sub TranslateSelection_WithLMStudio( _
     Optional ByVal TargetLang As String = DEFAULT_TARGET_LANG, _
+    Optional ByVal OriginalLang As String = DEFAULT_SOURCE_LANG, _
     Optional ByVal OutputColOffset As Long = DEFAULT_OUTPUT_COL_OFFSET, _
     Optional ByVal BatchSize As Long = DEFAULT_BATCH_SIZE, _
     Optional ByVal Overwrite As Boolean = DEFAULT_OVERWRITE, _
@@ -182,11 +183,13 @@ Private Function BuildBatchPrompt(ByVal srcCells As Collection, ByVal sIdx As Lo
     Dim i As Long
     
     sb = ""
-    sb = sb & "Translate each of the following items into " & targetLang & "." & vbCrLf
+    sb = sb & "Translate each of the following items from their original language, "& originalLang &" into " & targetLang & "." & vbCrLf
+    sb = sb & "For each <item>, output the translation in " & targetLang & ", not a copy of the original text." & vbCrLf
     sb = sb & "Rules:" & vbCrLf
     sb = sb & "- Output EXACTLY one <item> per input item, in order, with no commentary." & vbCrLf
     sb = sb & "- Do NOT add numbering, punctuation, or quotes unless present in the input." & vbCrLf
-    sb = sb & "- Keep line counts identical; return only:" & vbCrLf
+    sb = sb & "- Keep line counts identical; return only the translations, not the original text." & vbCrLf
+    sb = sb & "<list>" ' ...existing code...
     
     For i = sIdx To eIdx
         Dim srcText As String
@@ -290,6 +293,7 @@ End Function
 
 Public Sub Run_TranslateSelection_Prompt()
     Dim tgtLang As String
+    Dim srcLang As String
     Dim colOffset As Long
     Dim batchSize As Long
     Dim overwriteChoice As VbMsgBoxResult
@@ -298,6 +302,10 @@ Public Sub Run_TranslateSelection_Prompt()
     tgtLang = InputBox("Enter the target language for translation:", _
                        "Target Language", DEFAULT_TARGET_LANG)
     If Len(Trim$(tgtLang)) = 0 Then Exit Sub
+
+    ' Ask for source language
+    srcLang = InputBox("Enter the source language (optional, leave blank to auto-detect):", _
+                       "Source Language", DEFAULT_SOURCE_LANG)
     
     ' Ask for output column offset
     colOffset = CLng(InputBox( _
