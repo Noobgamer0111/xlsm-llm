@@ -291,6 +291,36 @@ Fallback:
 End Function
 
 Public Sub Run_TranslateSelection()
-    ' Calls the main macro with defaults
-    Call TranslateSelection_WithLMStudio
+    Public Sub Run_TranslateSelection_Prompt()
+    Dim tgtLang As String
+    Dim colOffset As Long
+    Dim batchSize As Long
+    Dim overwriteChoice As VbMsgBoxResult
+    
+    ' Ask for target language
+    tgtLang = InputBox("Enter the target language for translation:", _
+                       "Target Language", DEFAULT_TARGET_LANG)
+    If Len(Trim$(tgtLang)) = 0 Then Exit Sub
+    
+    ' Ask for output column offset
+    colOffset = CLng(InputBox( _
+        "Enter the column offset from the first selected column " & vbCrLf & _
+        "(e.g., 1 = next column, 2 = two columns to the right):", _
+        "Output Column Offset", DEFAULT_OUTPUT_COL_OFFSET))
+    
+    ' Ask for batch size
+    batchSize = CLng(InputBox( _
+        "Enter the batch size (number of rows per API call):", _
+        "Batch Size", DEFAULT_BATCH_SIZE))
+    
+    ' Ask whether to overwrite existing translations
+    overwriteChoice = MsgBox("Overwrite existing translations in the target column?", _
+                              vbYesNo + vbQuestion, "Overwrite?")
+    
+    ' Call the main macro with the chosen settings
+    Call TranslateSelection_WithLMStudio( _
+        TargetLang:=tgtLang, _
+        OutputColOffset:=colOffset, _
+        BatchSize:=batchSize, _
+        Overwrite:=(overwriteChoice = vbYes))
 End Sub
