@@ -100,67 +100,25 @@ NextCell:
         GoTo CleanExit
     End If
 
-    ' Process in batches using LLM_LIST from LLM_Functions.bas
-    ' We instruct the model to return exactly N <item> entries, one per source line.
-    startRowIndex = 1
-    Do While startRowIndex <= totalRows
-        Dim endRowIndex As Long
-        endRowIndex = Application.WorksheetFunction.Min(startRowIndex + BatchSize - 1, totalRows)
-        
-        ' Build batch prompt
+    ' Process each cell individually using the recommended prompt format
+    For i = 1 To totalRows
+        Dim srcText As String
+        srcText = SafeCellText(srcCells(i))
         Dim prompt As String
-        prompt = "<s>System" & vbCrLf & _
-                 "You are an expert at translating text from " & OriginalLang & " to " & targetLang & ".</s>" & vbCrLf & _
-                 "<s>User" & vbCrLf & _
-                 "What is the " & targetLang & " translation of the sentence: " & srcText & "?</s>" & vbCrLf & _
-                 "<s>Assistant" & vbCrLf & _
-                 "<br>"
-        
-        ' Call LLM_LIST (returns Variant array of strings)
-        Dim items As Variant
-        items = LLM_LIST(prompt, ModelName, BaseUrl, DEFAULT_SHOW_THINK)
-        ' LLM_LIST returns either a 0-based array of strings or an error text; handle both
-        If IsErrorLike(items) Then
-            ' Write errors into targets for traceability, but keep moving
-            Dim ei As Long
-            For ei = startRowIndex To endRowIndex
-                Dim errCell As Range
-                Set errCell = tgtCells(ei)
-                SafeWriteCell errCell, CStr(items)
-            Next ei
-            wroteCount = wroteCount + (endRowIndex - startRowIndex + 1)
-        ElseIf IsArray(items) Then
-            ' Ensure counts match; if not, attempt simple alignment
-            Dim batchCount As Long
-            batchCount = endRowIndex - startRowIndex + 1
-            
-            Dim outArr() As String
-            outArr = NormalizeListOutput(items, batchCount)
-            
-            ' Write to sheet
-            Dim k As Long, idx As Long
-            idx = 0
-            For k = startRowIndex To endRowIndex
-                Dim wCell As Range
-                Set wCell = tgtCells(k)
-                SafeWriteCell wCell, outArr(idx)
-                idx = idx + 1
-            Next k
-            wroteCount = wroteCount + batchCount
+        prompt = "Translate from " & OriginalLang & " to " & TargetLang & ": " & srcText
+        Dim translation As Variant
+        translation = LLM_LIST(prompt, ModelName, BaseUrl, DEFAULT_SHOW_THINK)
+        If IsErrorLike(translation) Then
+            SafeWriteCell tgtCells(i), CStr(translation)
+        ElseIf IsArray(translation) Then
+            SafeWriteCell tgtCells(i), SafeText(translation(LBound(translation)))
         Else
-            ' Unexpected type: write the stringified result
-            Dim ui As Long
-            For ui = startRowIndex To endRowIndex
-                SafeWriteCell tgtCells(ui), CStr(items)
-            Next ui
-            wroteCount = wroteCount + (endRowIndex - startRowIndex + 1)
+            SafeWriteCell tgtCells(i), SafeText(translation)
         End If
-        
+        wroteCount = wroteCount + 1
         Application.StatusBar = "Translated " & wroteCount & " of " & totalRows & " (skipped: " & skippedCount & ")"
-        DoEvents ' Yield UI
-        startRowIndex = endRowIndex + 1
-    Loop
-
+        DoEvents
+    Next i
     Application.StatusBar = "Done. Wrote: " & wroteCount & " | Skipped: " & skippedCount
 
 CleanExit:
