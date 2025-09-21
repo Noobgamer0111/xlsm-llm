@@ -102,10 +102,15 @@ NextCell:
 
     ' Process each cell individually using the recommended prompt format
     For i = 1 To totalRows
-        Dim srcText As String
         srcText = SafeCellText(srcCells(i))
         Dim prompt As String
-        prompt = "Translate from " & OriginalLang & " to " & TargetLang & ": " & srcText
+        prompt = "<s>System" & vbCrLf & _
+                 "You are an expert at translating text from " & OriginalLang & " to " & TargetLang & ".</s>" & vbCrLf & _
+                 "<s>User" & vbCrLf & _
+                 "What is the " & TargetLang & " translation of the sentence: " & srcText & "?</s>" & vbCrLf & _
+                 "<s>Assistant" & vbCrLf & _
+                 "<br>"
+
         Dim translation As Variant
         translation = LLM_LIST(prompt, ModelName, BaseUrl, DEFAULT_SHOW_THINK)
         If IsErrorLike(translation) Then
@@ -139,34 +144,6 @@ CleanFail:
     On Error GoTo 0
     MsgBox "Translation failed: " & Err.Description, vbCritical
 End Sub
-
-' Build a strict batch prompt that maps one source line to one target <item>
-Private Function BuildBatchPrompt(ByVal srcCells As Collection, ByVal sIdx As Long, ByVal eIdx As Long, ByVal targetLang As String, ByVal OriginalLang As String) As String
-    Dim sb As String
-    Dim i As Long
-    
-    sb = ""
-    sb = sb & "Translate each of the following items from " & OriginalLang & " to " & targetLang & "." & vbCrLf
-    sb = sb & "Output ONLY a <list> containing one <item> for each input, in order, with NO commentary, NO instructions, and NO repetition of the original text." & vbCrLf
-    sb = sb & "For example, if the input is:" & vbCrLf
-    sb = sb & "<item>Hello</item><item>World</item>" & vbCrLf
-    sb = sb & "and the target language is French, output:" & vbCrLf
-    sb = sb & "<list><item>Bonjour</item><item>Monde</item></list>" & vbCrLf
-    sb = sb & "Now translate the following:" & vbCrLf
-    sb = sb & "<list>"
-    
-    For i = sIdx To eIdx
-        Dim srcText As String
-        srcText = SafeCellText(srcCells(i))
-        ' Escape any XML-looking sequences lightly to avoid breaking tags
-        srcText = Replace(srcText, "<", "＜")
-        srcText = Replace(srcText, ">", "＞")
-        sb = sb & "<item>" & srcText & "</item>"
-    Next i
-    
-    sb = sb & "</list>"
-    BuildBatchPrompt = sb
-End Function
 
 ' Normalize/trim the LLM_LIST output to exactly batchCount items
 Private Function NormalizeListOutput(ByVal items As Variant, ByVal batchCount As Long) As String()
